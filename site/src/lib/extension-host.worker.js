@@ -1,23 +1,101 @@
 /**
  * Extension Host - Runs all plugin code in isolated Web Worker
- * No DOM access, controlled API surface
+ * No DOM access, controlled API surface, capability-based permissions
  */
 
-let loadedPlugins = new Map();
-// Store event subscriptions: Map<eventName, Map<pluginId, handler>>
-let eventSubscriptions = new Map();
+let loadedPlugins = new Map();  // pluginId -> module
+let pluginPermissions = new Map();  // pluginId -> [permissions]
 
-// Controlled API that plugins can use
-const pluginAPI = {
-  // Only safe operations allowed
-  console: {
-    log: (...args) => console.log('[Plugin]', ...args),
-    error: (...args) => console.error('[Plugin]', ...args)
+/**
+ * Host API - Capability-based access control
+ * Plugins can only call APIs they have permission for
+ */
+const HOST_API = {
+  'text.read': {
+    getContent: () => {
+      // Would get from main thread
+      return self._currentContent || '';
+    },
+    getSelection: () => {
+      return self._currentSelection || '';
+    }
+  },
+
+  'text.transform': {
+    replaceContent: (newContent) => {
+      // Send to main thread
+      self.postMessage({
+        type: 'api_call',
+        api: 'text.replaceContent',
+        args: [newContent]
+      });
+    },
+    insertAtCursor: (text) => {
+      self.postMessage({
+        type: 'api_call',
+        api: 'text.insertAtCursor',
+        args: [text]
+      });
+    }
+  },
+
+  'ui.panel': {
+    updatePanel: (panelId, html) => {
+      self.postMessage({
+        type: 'api_call',
+        api: 'ui.updatePanel',
+        args: [panelId, html]
+      });
+    }
+  },
+
+  'ui.statusBar': {
+    updateStatusBar: (itemId, text) => {
+      self.postMessage({
+        type: 'api_call',
+        api: 'ui.updateStatusBar',
+        args: [itemId, text]
+      });
+    }
+  },
+
+  'storage.local': {
+    get: async (key) => {
+      // Would communicate with main thread
+      return null;
+    },
+    set: async (key, value) => {
+      // Would communicate with main thread
+    }
   }
 };
 
+/**
+ * Create scoped API for a plugin based on its permissions
+ */
+function createPluginAPI(permissions) {
+  const scopedAPI = {};
+
+  for (const perm of permissions) {
+    const api = HOST_API[perm];
+    if (api) {
+      // Create namespace
+      const [namespace, capability] = perm.split('.');
+      if (!scopedAPI[namespace]) {
+        scopedAPI[namespace] = {};
+      }
+      Object.assign(scopedAPI[namespace], api);
+    }
+  }
+
+  return scopedAPI;
+}
+
+/**
+ * Message handler
+ */
 self.onmessage = async (event) => {
-  const { id, type, pluginId, method, args } = event.data;
+  const { id, type, pluginId, method, args, permissions } = event.data;
 
   try {
     switch (type) {
@@ -29,23 +107,46 @@ self.onmessage = async (event) => {
         await module.default();
 
         loadedPlugins.set(pluginId, module);
+        pluginPermissions.set(pluginId, permissions || []);
 
-        // Check if plugin exports a subscribe function for event-based API
-        if (typeof module.subscribe === 'function') {
-          try {
-            const subscriptions = await module.subscribe();
+        console.log(`[ExtensionHost] Loaded plugin: ${pluginId}`);
+        self.postMessage({ id, type: 'success' });
+        break;
+      }
 
-            // Register event handlers from the plugin
-            for (const [eventName, handler] of Object.entries(subscriptions)) {
-              if (!eventSubscriptions.has(eventName)) {
-                eventSubscriptions.set(eventName, new Map());
-              }
-              eventSubscriptions.get(eventName).set(pluginId, handler);
-              console.log(`[ExtensionHost] Plugin ${pluginId} subscribed to event: ${eventName}`);
-            }
-          } catch (error) {
-            console.error(`[ExtensionHost] Failed to subscribe plugin ${pluginId}:`, error);
-          }
+      case 'activatePlugin': {
+        const plugin = loadedPlugins.get(pluginId);
+        if (!plugin) {
+          throw new Error(`Plugin ${pluginId} not loaded`);
+        }
+
+        // Call activate() lifecycle method if it exists
+        if (typeof plugin.activate === 'function') {
+          const perms = pluginPermissions.get(pluginId) || [];
+          const pluginAPI = createPluginAPI(perms);
+
+          // Make API available to plugin (simplified - would use more secure injection)
+          self.pluginAPI = pluginAPI;
+
+          await plugin.activate();
+
+          console.log(`[ExtensionHost] Activated plugin: ${pluginId}`);
+        }
+
+        self.postMessage({ id, type: 'success' });
+        break;
+      }
+
+      case 'deactivatePlugin': {
+        const plugin = loadedPlugins.get(pluginId);
+        if (!plugin) {
+          throw new Error(`Plugin ${pluginId} not loaded`);
+        }
+
+        // Call deactivate() lifecycle method if it exists
+        if (typeof plugin.deactivate === 'function') {
+          await plugin.deactivate();
+          console.log(`[ExtensionHost] Deactivated plugin: ${pluginId}`);
         }
 
         self.postMessage({ id, type: 'success' });
@@ -58,6 +159,11 @@ self.onmessage = async (event) => {
           throw new Error(`Plugin ${pluginId} not loaded`);
         }
 
+        // Set up scoped API for this call
+        const perms = pluginPermissions.get(pluginId) || [];
+        const pluginAPI = createPluginAPI(perms);
+        self.pluginAPI = pluginAPI;
+
         // Execute plugin method (sandboxed in worker)
         const result = await plugin[method](...args);
 
@@ -65,47 +171,11 @@ self.onmessage = async (event) => {
         break;
       }
 
-      case 'emitEvent': {
-        const { eventName, data } = event.data;
-        const results = {};
-
-        // Get all plugins subscribed to this event
-        const subscribers = eventSubscriptions.get(eventName);
-
-        if (subscribers) {
-          // Call all subscribed handlers in parallel
-          const promises = Array.from(subscribers.entries()).map(async ([pluginId, handler]) => {
-            try {
-              const result = await handler(data);
-              return { pluginId, result };
-            } catch (error) {
-              console.error(`[ExtensionHost] Plugin ${pluginId} error handling ${eventName}:`, error);
-              return { pluginId, error: error.message };
-            }
-          });
-
-          const responses = await Promise.all(promises);
-
-          // Organize results by plugin ID
-          for (const { pluginId, result, error } of responses) {
-            results[pluginId] = error ? { error } : result;
-          }
-        }
-
-        self.postMessage({ id, type: 'result', result: results });
-        break;
-      }
-
       case 'unloadPlugin': {
-        // Remove plugin's event subscriptions
-        for (const [eventName, subscribers] of eventSubscriptions.entries()) {
-          subscribers.delete(pluginId);
-          if (subscribers.size === 0) {
-            eventSubscriptions.delete(eventName);
-          }
-        }
-
         loadedPlugins.delete(pluginId);
+        pluginPermissions.delete(pluginId);
+
+        console.log(`[ExtensionHost] Unloaded plugin: ${pluginId}`);
         self.postMessage({ id, type: 'success' });
         break;
       }
@@ -124,5 +194,5 @@ self.onmessage = async (event) => {
 
 // Plugin environment validation
 self.addEventListener('error', (event) => {
-  console.error('Plugin error:', event.error);
+  console.error('[ExtensionHost] Plugin error:', event.error);
 });

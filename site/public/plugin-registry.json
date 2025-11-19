@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "id": "markdown-plugin",
+      "manifestUrl": "https://pavi2410.github.io/wasm-plugins/plugins/markdown/manifest.json"
+    },
+    {
+      "id": "word-counter-plugin",
+      "manifestUrl": "https://pavi2410.github.io/wasm-plugins/plugins/word-counter/manifest.json"
+    },
+    {
+      "id": "tag-manager-plugin",
+      "manifestUrl": "https://pavi2410.github.io/wasm-plugins/plugins/tag-manager/manifest.json"
+    }
+  ]
+}

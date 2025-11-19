@@ -1,0 +1,49 @@
+{
+  "id": "markdown-plugin",
+  "name": "Markdown Renderer",
+  "version": "0.1.0",
+  "description": "Convert markdown to HTML with full syntax support including tables, strikethrough, and task lists",
+  "author": "WASM Plugins Team",
+
+  "main": "https://pavi2410.github.io/wasm-plugins/plugins/markdown/markdown_plugin.js",
+
+  "permissions": [
+    "text.read",
+    "text.transform",
+    "ui.panel"
+  ],
+
+  "contributes": {
+    "panels": [
+      {
+        "id": "markdown-preview",
+        "title": "Preview",
+        "viewType": "preview.main",
+        "icon": "eye",
+        "priority": 100,
+        "when": "editorHasText",
+        "command": "markdown.render"
+      }
+    ],
+    "commands": [
+      {
+        "id": "markdown.render",
+        "handler": "render"
+      }
+    ]
+  },
+
+  "activationEvents": [
+    "onEditor:text"
+  ],
+
+  "metadata": {
+    "features": [
+      "Bold/italic/strikethrough",
+      "Code blocks",
+      "Lists & tables",
+      "Links & images"
+    ],
+    "size": "238 KB"
+  }
+}

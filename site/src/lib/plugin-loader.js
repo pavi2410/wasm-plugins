@@ -1,9 +1,8 @@
 /**
- * Plugin Loader using Extension Host pattern (VS Code-style)
- * All plugins run in isolated Web Worker with no DOM access
+ * Plugin Loader - Manifest-based plugin system
+ * Fetches plugin registry and manifests, loads plugins securely in Web Worker
  *
- * Security: Plugins cannot access DOM, localStorage, cookies, or make
- * arbitrary network requests. They execute in a sandboxed Web Worker.
+ * Security: Plugins run in isolated Web Worker with capability-based API access
  */
 
 export class PluginLoader {
@@ -11,37 +10,70 @@ export class PluginLoader {
     this.worker = null;
     this.messageId = 0;
     this.pendingMessages = new Map();
-    this.loadedPlugins = new Set();
 
-    this.availablePlugins = [
-      {
-        id: 'markdown-plugin',
-        name: 'Markdown Renderer',
-        description: 'Convert markdown to HTML with full syntax support',
-        features: ['Bold/italic/strikethrough', 'Code blocks', 'Lists & tables', 'Links & images'],
-        size: '238 KB',
-        url: 'https://pavi2410.github.io/wasm-plugins/plugins/markdown/index.js',
-        permissions: ['text.transform']
-      },
-      {
-        id: 'word-counter-plugin',
-        name: 'Word Counter',
-        description: 'Real-time statistics about your text',
-        features: ['Word count', 'Character count', 'Line count', 'Paragraph count'],
-        size: '48 KB',
-        url: 'https://pavi2410.github.io/wasm-plugins/plugins/word-counter/index.js',
-        permissions: ['text.analyze']
-      },
-      {
-        id: 'tag-manager-plugin',
-        name: 'Tag Manager',
-        description: 'Extract and manage hashtags in your notes',
-        features: ['Auto-detect #hashtags', 'Tag filtering', 'Tag normalization'],
-        size: '79 KB',
-        url: 'https://pavi2410.github.io/wasm-plugins/plugins/tag-manager/index.js',
-        permissions: ['text.analyze']
+    // Plugin state management
+    this.registry = null;
+    this.manifests = new Map();  // pluginId -> manifest
+    this.loadedPlugins = new Set();  // Plugins currently loaded in worker
+    this.contributions = new Map();  // extensionPoint -> [contributions]
+
+    // Registry URL (can be overridden for testing)
+    this.registryUrl = 'https://pavi2410.github.io/wasm-plugins/plugin-registry.json';
+  }
+
+  /**
+   * Initialize: Fetch plugin registry and all manifests
+   */
+  async initialize() {
+    try {
+      // Fetch plugin registry
+      const response = await fetch(this.registryUrl);
+      this.registry = await response.json();
+
+      console.log(`📦 Found ${this.registry.plugins.length} plugins in registry`);
+
+      // Fetch all manifests
+      const manifestPromises = this.registry.plugins.map(entry =>
+        this.fetchManifest(entry.id, entry.manifestUrl)
+      );
+
+      await Promise.allSettled(manifestPromises);
+
+      console.log(`✓ Loaded ${this.manifests.size} plugin manifests`);
+    } catch (error) {
+      console.error('Failed to initialize plugin registry:', error);
+    }
+  }
+
+  /**
+   * Fetch and validate a plugin manifest
+   */
+  async fetchManifest(pluginId, manifestUrl) {
+    try {
+      const response = await fetch(manifestUrl);
+      const manifest = await response.json();
+
+      // Validate manifest structure
+      if (!this.validateManifest(manifest)) {
+        throw new Error(`Invalid manifest for ${pluginId}`);
       }
-    ];
+
+      this.manifests.set(pluginId, manifest);
+      console.log(`✓ Loaded manifest: ${manifest.name} v${manifest.version}`);
+
+      return manifest;
+    } catch (error) {
+      console.error(`Failed to load manifest for ${pluginId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate manifest structure
+   */
+  validateManifest(manifest) {
+    const required = ['id', 'name', 'version', 'main', 'permissions', 'contributes'];
+    return required.every(field => manifest.hasOwnProperty(field));
   }
 
   /**
@@ -102,7 +134,31 @@ export class PluginLoader {
   }
 
   /**
-   * Load a plugin into the extension host
+   * LIFECYCLE: Install a plugin
+   */
+  async installPlugin(pluginId) {
+    const manifest = this.manifests.get(pluginId);
+    if (!manifest) {
+      throw new Error(`Plugin ${pluginId} not found in registry`);
+    }
+
+    // Save to installed list
+    const installed = this.getInstalledPlugins();
+    if (!installed.includes(pluginId)) {
+      installed.push(pluginId);
+      this.saveInstalledPlugins(installed);
+    }
+
+    // Load and activate
+    await this.loadPlugin(pluginId);
+    await this.activatePlugin(pluginId);
+
+    console.log(`✓ Installed: ${manifest.name}`);
+    return true;
+  }
+
+  /**
+   * LIFECYCLE: Load a plugin into the extension host
    */
   async loadPlugin(pluginId) {
     if (this.loadedPlugins.has(pluginId)) {
@@ -110,46 +166,154 @@ export class PluginLoader {
       return;
     }
 
-    // Get plugin metadata with hardcoded URL
-    const plugin = this.availablePlugins.find(p => p.id === pluginId);
-    if (!plugin) {
-      throw new Error(`Unknown plugin: ${pluginId}`);
+    const manifest = this.manifests.get(pluginId);
+    if (!manifest) {
+      throw new Error(`No manifest found for ${pluginId}`);
     }
 
-    const pluginUrl = plugin.url;
-    console.log(`Loading plugin in worker: ${pluginUrl}`);
+    const pluginUrl = manifest.main;
+    console.log(`Loading plugin in worker: ${manifest.name}`);
 
     await this.sendMessage({
       type: 'loadPlugin',
       pluginId,
-      pluginUrl
+      pluginUrl,
+      permissions: manifest.permissions
     });
 
     this.loadedPlugins.add(pluginId);
-    console.log(`✓ Plugin loaded securely: ${pluginId}`);
+    console.log(`✓ Plugin loaded: ${manifest.name}`);
   }
 
   /**
-   * Call a plugin method (executes in worker)
+   * LIFECYCLE: Activate a plugin (register contributions)
    */
-  async callPlugin(pluginId, method, ...args) {
-    if (!this.loadedPlugins.has(pluginId)) {
-      throw new Error(`Plugin ${pluginId} not loaded`);
+  async activatePlugin(pluginId) {
+    const manifest = this.manifests.get(pluginId);
+    if (!manifest) {
+      throw new Error(`No manifest found for ${pluginId}`);
     }
 
-    // All execution happens in worker - no access to main thread
+    // Call activate() lifecycle method if exists
+    try {
+      await this.sendMessage({
+        type: 'activatePlugin',
+        pluginId
+      });
+    } catch (error) {
+      console.log(`Plugin ${pluginId} has no activate() method (optional)`);
+    }
+
+    // Register contributions from manifest
+    this.registerContributions(pluginId, manifest.contributes);
+
+    console.log(`✓ Activated: ${manifest.name}`);
+  }
+
+  /**
+   * Register plugin contributions from manifest
+   */
+  registerContributions(pluginId, contributes) {
+    const manifest = this.manifests.get(pluginId);
+
+    // Register panels
+    if (contributes.panels) {
+      for (const panel of contributes.panels) {
+        const viewType = panel.viewType;
+
+        if (!this.contributions.has(viewType)) {
+          this.contributions.set(viewType, []);
+        }
+
+        this.contributions.get(viewType).push({
+          pluginId,
+          ...panel,
+          pluginName: manifest.name
+        });
+      }
+    }
+
+    // Register status bar items
+    if (contributes.statusBar) {
+      if (!this.contributions.has('statusBar')) {
+        this.contributions.set('statusBar', []);
+      }
+
+      for (const item of contributes.statusBar) {
+        this.contributions.get('statusBar').push({
+          pluginId,
+          ...item,
+          pluginName: manifest.name
+        });
+      }
+    }
+
+    // Sort contributions by priority (higher = first)
+    for (const [viewType, contribs] of this.contributions.entries()) {
+      contribs.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    }
+  }
+
+  /**
+   * Get all contributions for a specific extension point
+   */
+  getContributions(viewType) {
+    return this.contributions.get(viewType) || [];
+  }
+
+  /**
+   * Execute a contribution's command
+   */
+  async executeContribution(pluginId, commandId, data) {
+    const manifest = this.manifests.get(pluginId);
+    if (!manifest) {
+      throw new Error(`Plugin ${pluginId} not found`);
+    }
+
+    // Find command handler
+    const command = manifest.contributes.commands?.find(cmd => cmd.id === commandId);
+    if (!command) {
+      throw new Error(`Command ${commandId} not found in ${pluginId}`);
+    }
+
+    // Call the handler function
     const result = await this.sendMessage({
       type: 'callPlugin',
       pluginId,
-      method,
-      args
+      method: command.handler,
+      args: [data]
     });
 
     return result;
   }
 
   /**
-   * Unload a plugin
+   * LIFECYCLE: Deactivate a plugin
+   */
+  async deactivatePlugin(pluginId) {
+    // Call deactivate() lifecycle method if exists
+    try {
+      await this.sendMessage({
+        type: 'deactivatePlugin',
+        pluginId
+      });
+    } catch (error) {
+      console.log(`Plugin ${pluginId} has no deactivate() method (optional)`);
+    }
+
+    // Unregister contributions
+    for (const [viewType, contribs] of this.contributions.entries()) {
+      this.contributions.set(
+        viewType,
+        contribs.filter(c => c.pluginId !== pluginId)
+      );
+    }
+
+    console.log(`✓ Deactivated: ${pluginId}`);
+  }
+
+  /**
+   * LIFECYCLE: Unload a plugin
    */
   async unloadPlugin(pluginId) {
     await this.sendMessage({
@@ -158,26 +322,45 @@ export class PluginLoader {
     });
 
     this.loadedPlugins.delete(pluginId);
+    console.log(`✓ Unloaded: ${pluginId}`);
   }
 
   /**
-   * Emit an event to all subscribed plugins
-   * @param {string} eventName - Event name (e.g., 'content.changed')
-   * @param {any} data - Event data
-   * @returns {Promise<Object>} Results from all subscribed plugins, keyed by plugin ID
+   * LIFECYCLE: Uninstall a plugin
    */
-  async emit(eventName, data) {
-    if (!this.worker) {
-      await this.initializeExtensionHost();
+  async uninstallPlugin(pluginId) {
+    // Deactivate and unload
+    if (this.loadedPlugins.has(pluginId)) {
+      await this.deactivatePlugin(pluginId);
+      await this.unloadPlugin(pluginId);
     }
 
-    const results = await this.sendMessage({
-      type: 'emitEvent',
-      eventName,
-      data
-    });
+    // Remove from installed list
+    const installed = this.getInstalledPlugins();
+    const filtered = installed.filter(id => id !== pluginId);
+    this.saveInstalledPlugins(filtered);
 
-    return results;
+    console.log(`✓ Uninstalled: ${pluginId}`);
+    return true;
+  }
+
+  /**
+   * Load all installed plugins
+   */
+  async loadInstalledPlugins() {
+    const installed = this.getInstalledPlugins();
+    console.log(`Loading ${installed.length} installed plugins...`);
+
+    for (const pluginId of installed) {
+      try {
+        await this.loadPlugin(pluginId);
+        await this.activatePlugin(pluginId);
+      } catch (error) {
+        console.error(`Failed to load ${pluginId}:`, error);
+      }
+    }
+
+    console.log(`✓ Loaded ${this.loadedPlugins.size} plugins`);
   }
 
   // ===== Installation Management =====
@@ -195,47 +378,69 @@ export class PluginLoader {
     return this.getInstalledPlugins().includes(pluginId);
   }
 
-  async installPlugin(pluginId) {
-    const installed = this.getInstalledPlugins();
-    if (!installed.includes(pluginId)) {
-      installed.push(pluginId);
-      this.saveInstalledPlugins(installed);
-    }
-
-    await this.loadPlugin(pluginId);
-    return true;
-  }
-
-  uninstallPlugin(pluginId) {
-    const installed = this.getInstalledPlugins();
-    const filtered = installed.filter(id => id !== pluginId);
-    this.saveInstalledPlugins(filtered);
-
-    this.unloadPlugin(pluginId);
-    return true;
-  }
-
-  async loadInstalledPlugins() {
-    const installed = this.getInstalledPlugins();
-    console.log(`Loading ${installed.length} installed plugins securely...`);
-
-    const results = await Promise.allSettled(
-      installed.map(id => this.loadPlugin(id))
-    );
-
-    const loaded = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`✓ Securely loaded ${loaded}/${installed.length} plugins in worker`);
-  }
-
+  /**
+   * Get available plugins from registry with install status
+   */
   getAvailablePlugins() {
-    return this.availablePlugins.map(plugin => ({
-      ...plugin,
-      installed: this.isInstalled(plugin.id),
-      loaded: this.loadedPlugins.has(plugin.id)
+    return Array.from(this.manifests.values()).map(manifest => ({
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description,
+      author: manifest.author,
+      features: manifest.metadata?.features || [],
+      size: manifest.metadata?.size || 'Unknown',
+      permissions: manifest.permissions,
+      installed: this.isInstalled(manifest.id),
+      loaded: this.loadedPlugins.has(manifest.id)
     }));
   }
 
   hasPlugin(pluginId) {
     return this.loadedPlugins.has(pluginId);
+  }
+
+  /**
+   * Legacy API for backward compatibility (deprecated)
+   */
+  async emit(eventName, data) {
+    console.warn('emit() is deprecated, use contributions API instead');
+    const results = {};
+
+    // Find all contributions that respond to this event
+    for (const [viewType, contribs] of this.contributions.entries()) {
+      for (const contrib of contribs) {
+        try {
+          const result = await this.executeContribution(
+            contrib.pluginId,
+            contrib.command,
+            data
+          );
+          results[contrib.pluginId] = result;
+        } catch (error) {
+          results[contrib.pluginId] = { error: error.message };
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Legacy callPlugin for backward compatibility (deprecated)
+   */
+  async callPlugin(pluginId, method, ...args) {
+    console.warn('callPlugin() is deprecated, use executeContribution() instead');
+
+    if (!this.loadedPlugins.has(pluginId)) {
+      throw new Error(`Plugin ${pluginId} not loaded`);
+    }
+
+    return await this.sendMessage({
+      type: 'callPlugin',
+      pluginId,
+      method,
+      args
+    });
   }
 }
