@@ -19,6 +19,30 @@ export class PluginLoader {
 
     // Registry URL (can be overridden for testing)
     this.registryUrl = 'https://pavi2410.github.io/wasm-plugins/plugin-registry.json';
+
+    // Slot type configuration - defines how conflicts are resolved
+    this.slotTypes = {
+      'preview.main': {
+        type: 'tabs',  // Show all as tabs if multiple plugins
+        layout: 'horizontal'
+      },
+      'preview.stats': {
+        type: 'multiple',  // Show all plugins
+        layout: 'vertical'
+      },
+      'preview.tags': {
+        type: 'multiple',  // Show all plugins
+        layout: 'horizontal'
+      },
+      'statusBar': {
+        type: 'multiple',  // Show all items
+        layout: 'horizontal'
+      },
+      'editor.gutter': {
+        type: 'single',  // Only highest priority
+        conflict: 'priority'
+      }
+    };
   }
 
   /**
