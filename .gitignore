@@ -1,0 +1,42 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Node
+node_modules/
+dist/
+.astro/
+
+# Build outputs
+site/public/plugins/*/package.json
+site/public/plugins/*/*.js
+site/public/plugins/*/*.wasm
+site/public/plugins/*/*.ts
+site/public/plugins/*/*.d.ts
+
+# Keep the directory structure
+!site/public/plugins/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
