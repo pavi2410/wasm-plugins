@@ -49,36 +49,33 @@ export default function NoteEditor({
     updatePreview();
   }, [content, pluginsLoaded]);
 
-  const updatePreview = () => {
+  const updatePreview = async () => {
     let html = content || '<p style="color: var(--text-muted);">Preview will appear here...</p>';
     let stats = null;
     let tags: string[] = [];
 
-    // Markdown Plugin
-    const markdownPlugin = pluginLoader.getPlugin('markdown-plugin');
-    if (markdownPlugin && content) {
+    // Markdown Plugin - calls execute in worker
+    if (pluginLoader.hasPlugin('markdown-plugin') && content) {
       try {
-        html = markdownPlugin.render(content);
+        html = await pluginLoader.callPlugin('markdown-plugin', 'render', content);
       } catch (error) {
         console.error('Markdown plugin error:', error);
       }
     }
 
-    // Word Counter Plugin
-    const counterPlugin = pluginLoader.getPlugin('word-counter-plugin');
-    if (counterPlugin && content) {
+    // Word Counter Plugin - calls execute in worker
+    if (pluginLoader.hasPlugin('word-counter-plugin') && content) {
       try {
-        stats = counterPlugin.count(content);
+        stats = await pluginLoader.callPlugin('word-counter-plugin', 'count', content);
       } catch (error) {
         console.error('Word counter plugin error:', error);
       }
     }
 
-    // Tag Manager Plugin
-    const tagPlugin = pluginLoader.getPlugin('tag-manager-plugin');
-    if (tagPlugin && content) {
+    // Tag Manager Plugin - calls execute in worker
+    if (pluginLoader.hasPlugin('tag-manager-plugin') && content) {
       try {
-        tags = tagPlugin.extract_tags(content);
+        tags = await pluginLoader.callPlugin('tag-manager-plugin', 'extract_tags', content);
       } catch (error) {
         console.error('Tag manager plugin error:', error);
       }
