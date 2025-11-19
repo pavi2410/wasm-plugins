@@ -10,6 +10,8 @@ crate-type = ["cdylib"]
 wasm-bindgen = { workspace = true }
 pulldown-cmark = "0.9"
 wasm-plugin-sdk = { path = "../../wasm-plugin-sdk" }
+serde = { workspace = true }
+serde_json = "1.0"
 
 [profile.release]
 opt-level = "z"

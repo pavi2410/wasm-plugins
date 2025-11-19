@@ -10,13 +10,14 @@
  *
  * #[wasm_bindgen]
  * pub fn activate() {
- *     console_log("Plugin activated!");
- * }
+ *     // Register command handler at runtime
+ *     register_event("content.changed", |data| {
+ *         let content = extract_string(&data, "content");
+ *         let html = render_markdown(&content);
+ *         create_result("render", &html)
+ *     });
  *
- * #[wasm_bindgen]
- * pub fn render(content: &str) -> String {
- *     // Your plugin logic here
- *     format!("<p>{}</p>", content)
+ *     console_log("Plugin activated!");
  * }
  * ```
  */
@@ -40,6 +41,22 @@ extern "C" {
     pub fn warn(s: &str);
 }
 
+/// Runtime registration APIs provided by extension host
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = pluginAPI)]
+    pub fn registerCommand(commandId: &str, handler: &js_sys::Function);
+
+    #[wasm_bindgen(js_namespace = pluginAPI)]
+    pub fn registerEvent(eventName: &str, handler: &js_sys::Function);
+
+    #[wasm_bindgen(js_namespace = pluginAPI)]
+    pub fn unregisterCommand(commandId: &str);
+
+    #[wasm_bindgen(js_namespace = pluginAPI)]
+    pub fn unregisterEvent(eventName: &str);
+}
+
 /// Log to console with plugin prefix
 pub fn console_log(msg: &str) {
     log(&format!("[Plugin] {}", msg));
@@ -53,6 +70,42 @@ pub fn console_error(msg: &str) {
 /// Log warning to console with plugin prefix
 pub fn console_warn(msg: &str) {
     warn(&format!("[Plugin] {}", msg));
+}
+
+/// Register a command handler at runtime
+///
+/// # Example
+/// ```rust
+/// register_command("markdown.render", |data| {
+///     // Handle command
+///     JsValue::from_str("result")
+/// });
+/// ```
+pub fn register_command<F>(command_id: &str, handler: F)
+where
+    F: Fn(JsValue) -> JsValue + 'static,
+{
+    let closure = Closure::wrap(Box::new(handler) as Box<dyn Fn(JsValue) -> JsValue>);
+    registerCommand(command_id, closure.as_ref().unchecked_ref());
+    closure.forget();  // Keep closure alive
+}
+
+/// Register an event handler at runtime
+///
+/// # Example
+/// ```rust
+/// register_event("content.changed", |data| {
+///     // Handle event
+///     JsValue::from_str("result")
+/// });
+/// ```
+pub fn register_event<F>(event_name: &str, handler: F)
+where
+    F: Fn(JsValue) -> JsValue + 'static,
+{
+    let closure = Closure::wrap(Box::new(handler) as Box<dyn Fn(JsValue) -> JsValue>);
+    registerEvent(event_name, closure.as_ref().unchecked_ref());
+    closure.forget();  // Keep closure alive
 }
 
 /// Plugin manifest structure (read from manifest.json)

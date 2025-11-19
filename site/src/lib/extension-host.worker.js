@@ -1,10 +1,13 @@
 /**
  * Extension Host - Runs all plugin code in isolated Web Worker
  * No DOM access, controlled API surface, capability-based permissions
+ * Runtime command registration for dynamic plugin behavior
  */
 
 let loadedPlugins = new Map();  // pluginId -> module
 let pluginPermissions = new Map();  // pluginId -> [permissions]
+let commandRegistry = new Map();  // commandId -> {pluginId, handler}
+let eventRegistry = new Map();  // eventName -> Map<pluginId, handler>
 
 /**
  * Host API - Capability-based access control
@@ -13,7 +16,6 @@ let pluginPermissions = new Map();  // pluginId -> [permissions]
 const HOST_API = {
   'text.read': {
     getContent: () => {
-      // Would get from main thread
       return self._currentContent || '';
     },
     getSelection: () => {
@@ -23,7 +25,6 @@ const HOST_API = {
 
   'text.transform': {
     replaceContent: (newContent) => {
-      // Send to main thread
       self.postMessage({
         type: 'api_call',
         api: 'text.replaceContent',
@@ -57,29 +58,19 @@ const HOST_API = {
         args: [itemId, text]
       });
     }
-  },
-
-  'storage.local': {
-    get: async (key) => {
-      // Would communicate with main thread
-      return null;
-    },
-    set: async (key, value) => {
-      // Would communicate with main thread
-    }
   }
 };
 
 /**
  * Create scoped API for a plugin based on its permissions
  */
-function createPluginAPI(permissions) {
+function createPluginAPI(pluginId, permissions) {
   const scopedAPI = {};
 
+  // Add host APIs based on permissions
   for (const perm of permissions) {
     const api = HOST_API[perm];
     if (api) {
-      // Create namespace
       const [namespace, capability] = perm.split('.');
       if (!scopedAPI[namespace]) {
         scopedAPI[namespace] = {};
@@ -88,6 +79,39 @@ function createPluginAPI(permissions) {
     }
   }
 
+  // Add runtime registration APIs (always available)
+  scopedAPI.registerCommand = (commandId, handler) => {
+    if (commandRegistry.has(commandId)) {
+      console.warn(`[ExtensionHost] Command ${commandId} already registered, overwriting`);
+    }
+    commandRegistry.set(commandId, { pluginId, handler });
+    console.log(`[ExtensionHost] Plugin ${pluginId} registered command: ${commandId}`);
+  };
+
+  scopedAPI.registerEvent = (eventName, handler) => {
+    if (!eventRegistry.has(eventName)) {
+      eventRegistry.set(eventName, new Map());
+    }
+    eventRegistry.get(eventName).set(pluginId, handler);
+    console.log(`[ExtensionHost] Plugin ${pluginId} subscribed to event: ${eventName}`);
+  };
+
+  scopedAPI.unregisterCommand = (commandId) => {
+    const entry = commandRegistry.get(commandId);
+    if (entry && entry.pluginId === pluginId) {
+      commandRegistry.delete(commandId);
+      console.log(`[ExtensionHost] Plugin ${pluginId} unregistered command: ${commandId}`);
+    }
+  };
+
+  scopedAPI.unregisterEvent = (eventName) => {
+    const handlers = eventRegistry.get(eventName);
+    if (handlers) {
+      handlers.delete(pluginId);
+      console.log(`[ExtensionHost] Plugin ${pluginId} unsubscribed from event: ${eventName}`);
+    }
+  };
+
   return scopedAPI;
 }
 
@@ -95,7 +119,7 @@ function createPluginAPI(permissions) {
  * Message handler
  */
 self.onmessage = async (event) => {
-  const { id, type, pluginId, method, args, permissions } = event.data;
+  const { id, type, pluginId, method, args, permissions, commandId, eventName, data } = event.data;
 
   try {
     switch (type) {
@@ -123,9 +147,9 @@ self.onmessage = async (event) => {
         // Call activate() lifecycle method if it exists
         if (typeof plugin.activate === 'function') {
           const perms = pluginPermissions.get(pluginId) || [];
-          const pluginAPI = createPluginAPI(perms);
+          const pluginAPI = createPluginAPI(pluginId, perms);
 
-          // Make API available to plugin (simplified - would use more secure injection)
+          // Make API available to plugin
           self.pluginAPI = pluginAPI;
 
           await plugin.activate();
@@ -149,11 +173,74 @@ self.onmessage = async (event) => {
           console.log(`[ExtensionHost] Deactivated plugin: ${pluginId}`);
         }
 
+        // Clean up registrations
+        for (const [cmdId, entry] of commandRegistry.entries()) {
+          if (entry.pluginId === pluginId) {
+            commandRegistry.delete(cmdId);
+          }
+        }
+
+        for (const [evtName, handlers] of eventRegistry.entries()) {
+          handlers.delete(pluginId);
+        }
+
         self.postMessage({ id, type: 'success' });
         break;
       }
 
+      case 'executeCommand': {
+        const entry = commandRegistry.get(commandId);
+        if (!entry) {
+          throw new Error(`Command ${commandId} not registered`);
+        }
+
+        // Set up scoped API for this call
+        const perms = pluginPermissions.get(entry.pluginId) || [];
+        const pluginAPI = createPluginAPI(entry.pluginId, perms);
+        self.pluginAPI = pluginAPI;
+
+        // Execute command handler
+        const result = await entry.handler(data);
+
+        self.postMessage({ id, type: 'result', result });
+        break;
+      }
+
+      case 'emitEvent': {
+        const handlers = eventRegistry.get(eventName);
+        const results = {};
+
+        if (handlers) {
+          // Execute all handlers for this event
+          const promises = Array.from(handlers.entries()).map(async ([pid, handler]) => {
+            try {
+              // Set up scoped API
+              const perms = pluginPermissions.get(pid) || [];
+              const pluginAPI = createPluginAPI(pid, perms);
+              self.pluginAPI = pluginAPI;
+
+              const result = await handler(data);
+              return { pluginId: pid, result };
+            } catch (error) {
+              console.error(`[ExtensionHost] Plugin ${pid} error handling ${eventName}:`, error);
+              return { pluginId: pid, error: error.message };
+            }
+          });
+
+          const responses = await Promise.all(promises);
+
+          // Organize results by plugin ID
+          for (const { pluginId: pid, result, error } of responses) {
+            results[pid] = error ? { error } : result;
+          }
+        }
+
+        self.postMessage({ id, type: 'result', result: results });
+        break;
+      }
+
       case 'callPlugin': {
+        // Legacy API - for backward compatibility during migration
         const plugin = loadedPlugins.get(pluginId);
         if (!plugin) {
           throw new Error(`Plugin ${pluginId} not loaded`);
@@ -161,7 +248,7 @@ self.onmessage = async (event) => {
 
         // Set up scoped API for this call
         const perms = pluginPermissions.get(pluginId) || [];
-        const pluginAPI = createPluginAPI(perms);
+        const pluginAPI = createPluginAPI(pluginId, perms);
         self.pluginAPI = pluginAPI;
 
         // Execute plugin method (sandboxed in worker)
@@ -172,6 +259,17 @@ self.onmessage = async (event) => {
       }
 
       case 'unloadPlugin': {
+        // Clean up all registrations
+        for (const [cmdId, entry] of commandRegistry.entries()) {
+          if (entry.pluginId === pluginId) {
+            commandRegistry.delete(cmdId);
+          }
+        }
+
+        for (const [evtName, handlers] of eventRegistry.entries()) {
+          handlers.delete(pluginId);
+        }
+
         loadedPlugins.delete(pluginId);
         pluginPermissions.delete(pluginId);
 

@@ -9,10 +9,44 @@ pub struct Stats {
     paragraphs: usize,
 }
 
-/// Plugin activation - called when plugin is loaded
+#[derive(Serialize)]
+struct StatsResult {
+    #[serde(rename = "type")]
+    result_type: String,
+    stats: Stats,
+}
+
+/// Plugin activation - Register event handlers at runtime
 #[wasm_bindgen]
 pub fn activate() {
     console_log("Word Counter activated");
+
+    // Register handler for content.changed event
+    register_event("content.changed", |data| {
+        // Extract content from event data
+        let content = match from_value::<serde_json::Value>(data) {
+            Ok(val) => val.get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            Err(_) => String::new()
+        };
+
+        if content.is_empty() {
+            return JsValue::NULL;
+        }
+
+        // Count statistics
+        let stats = count_stats(&content);
+
+        // Return result
+        let result = StatsResult {
+            result_type: "stats".to_string(),
+            stats,
+        };
+
+        to_value(&result).unwrap_or(JsValue::NULL)
+    });
 }
 
 /// Plugin deactivation - called before plugin is unloaded
@@ -21,11 +55,9 @@ pub fn deactivate() {
     console_log("Word Counter deactivated");
 }
 
-/// Count words, characters, lines, and paragraphs
-///
-/// This is the main command handler registered in manifest.json
-#[wasm_bindgen]
-pub fn count(text: &str) -> JsValue {
+/// Internal function to count stats
+/// Not exported - only used by event handler
+fn count_stats(text: &str) -> Stats {
     let words = text
         .split_whitespace()
         .filter(|s| !s.is_empty())
@@ -41,15 +73,13 @@ pub fn count(text: &str) -> JsValue {
         .count()
         .max(1);
 
-    let stats = Stats {
+    Stats {
         words,
         characters,
         characters_no_spaces,
         lines,
         paragraphs,
-    };
-
-    to_value(&stats).unwrap()
+    }
 }
 
 /// Get plugin information (for display in plugin manager)

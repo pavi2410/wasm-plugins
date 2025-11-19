@@ -1,10 +1,44 @@
 use wasm_plugin_sdk::prelude::*;
 use std::collections::HashSet;
 
-/// Plugin activation - called when plugin is loaded
+#[derive(Serialize)]
+struct TagsResult {
+    #[serde(rename = "type")]
+    result_type: String,
+    tags: Vec<String>,
+}
+
+/// Plugin activation - Register event handlers at runtime
 #[wasm_bindgen]
 pub fn activate() {
     console_log("Tag Manager activated");
+
+    // Register handler for content.changed event
+    register_event("content.changed", |data| {
+        // Extract content from event data
+        let content = match from_value::<serde_json::Value>(data) {
+            Ok(val) => val.get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            Err(_) => String::new()
+        };
+
+        if content.is_empty() {
+            return JsValue::NULL;
+        }
+
+        // Extract tags
+        let tags = extract_tags_internal(&content);
+
+        // Return result
+        let result = TagsResult {
+            result_type: "tags".to_string(),
+            tags,
+        };
+
+        to_value(&result).unwrap_or(JsValue::NULL)
+    });
 }
 
 /// Plugin deactivation - called before plugin is unloaded
@@ -13,11 +47,9 @@ pub fn deactivate() {
     console_log("Tag Manager deactivated");
 }
 
-/// Extract hashtags from text
-///
-/// This is the main command handler registered in manifest.json
-#[wasm_bindgen]
-pub fn extract_tags(text: &str) -> JsValue {
+/// Internal function to extract hashtags from text
+/// Not exported - only used by event handler
+fn extract_tags_internal(text: &str) -> Vec<String> {
     let mut tags: HashSet<String> = HashSet::new();
 
     for word in text.split_whitespace() {
@@ -35,22 +67,7 @@ pub fn extract_tags(text: &str) -> JsValue {
     let mut tags_vec: Vec<String> = tags.into_iter().collect();
     tags_vec.sort();
 
-    to_value(&tags_vec).unwrap()
-}
-
-/// Highlight tags in HTML
-#[wasm_bindgen]
-pub fn highlight_tags(text: &str) -> String {
-    let mut result = text.to_string();
-
-    for word in text.split_whitespace() {
-        if word.starts_with('#') && word.len() > 1 {
-            let highlighted = format!("<span class=\"tag\">{}</span>", word);
-            result = result.replace(word, &highlighted);
-        }
-    }
-
-    result
+    tags_vec
 }
 
 /// Get plugin information (for display in plugin manager)

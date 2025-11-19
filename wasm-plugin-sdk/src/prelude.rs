@@ -9,6 +9,7 @@
  */
 
 pub use crate::{console_log, console_error, console_warn, PluginResult};
+pub use crate::{register_command, register_event};
 pub use crate::api::*;
 pub use wasm_bindgen::prelude::*;
 pub use serde::{Serialize, Deserialize};
