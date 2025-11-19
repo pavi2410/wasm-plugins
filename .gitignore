@@ -9,15 +9,8 @@ node_modules/
 dist/
 .astro/
 
-# Build outputs
-site/public/plugins/*/package.json
-site/public/plugins/*/*.js
-site/public/plugins/*/*.wasm
-site/public/plugins/*/*.ts
-site/public/plugins/*/*.d.ts
-
-# Keep the directory structure
-!site/public/plugins/.gitkeep
+# Keep built WASM plugins in repo for GitHub Pages
+# (they're needed for the deployed site to work)
 
 # OS
 .DS_Store
