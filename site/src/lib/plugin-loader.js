@@ -94,7 +94,12 @@ export class PluginLoader {
     try {
       const baseUrl = import.meta.env.BASE_URL || '/';
       const pluginPath = baseUrl.endsWith('/') ? `${baseUrl}plugins` : `${baseUrl}/plugins`;
-      const pluginUrl = `${pluginPath}/${pluginId}/${pluginId.replace('-plugin', '_plugin')}.js`;
+
+      // Directory name: remove '-plugin' suffix (e.g., 'markdown-plugin' -> 'markdown')
+      const pluginDir = pluginId.replace('-plugin', '');
+      // File name: replace '-' with '_' (e.g., 'markdown-plugin' -> 'markdown_plugin')
+      const pluginFile = pluginId.replace('-plugin', '_plugin');
+      const pluginUrl = `${pluginPath}/${pluginDir}/${pluginFile}.js`;
 
       console.log(`Loading plugin from: ${pluginUrl}`);
 
