@@ -12,21 +12,24 @@ export class PluginLoader {
         name: 'Markdown Renderer',
         description: 'Convert markdown to HTML with full syntax support',
         features: ['Bold/italic/strikethrough', 'Code blocks', 'Lists & tables', 'Links & images'],
-        size: '238 KB'
+        size: '238 KB',
+        url: 'https://pavi2410.github.io/wasm-plugins/plugins/markdown/markdown_plugin.js'
       },
       {
         id: 'word-counter-plugin',
         name: 'Word Counter',
         description: 'Real-time statistics about your text',
         features: ['Word count', 'Character count', 'Line count', 'Paragraph count'],
-        size: '48 KB'
+        size: '48 KB',
+        url: 'https://pavi2410.github.io/wasm-plugins/plugins/word-counter/word_counter_plugin.js'
       },
       {
         id: 'tag-manager-plugin',
         name: 'Tag Manager',
         description: 'Extract and manage hashtags in your notes',
         features: ['Auto-detect #hashtags', 'Tag filtering', 'Tag normalization'],
-        size: '79 KB'
+        size: '79 KB',
+        url: 'https://pavi2410.github.io/wasm-plugins/plugins/tag-manager/tag_manager_plugin.js'
       }
     ];
   }
@@ -92,15 +95,13 @@ export class PluginLoader {
     }
 
     try {
-      const baseUrl = import.meta.env.BASE_URL || '/';
-      const pluginPath = baseUrl.endsWith('/') ? `${baseUrl}plugins` : `${baseUrl}/plugins`;
+      // Find the plugin metadata to get the hardcoded URL
+      const pluginMeta = this.availablePlugins.find(p => p.id === pluginId);
+      if (!pluginMeta || !pluginMeta.url) {
+        throw new Error(`Plugin ${pluginId} not found or missing URL`);
+      }
 
-      // Directory name: remove '-plugin' suffix (e.g., 'markdown-plugin' -> 'markdown')
-      const pluginDir = pluginId.replace('-plugin', '');
-      // File name: replace '-' with '_' (e.g., 'markdown-plugin' -> 'markdown_plugin')
-      const pluginFile = pluginId.replace('-plugin', '_plugin');
-      const pluginUrl = `${pluginPath}/${pluginDir}/${pluginFile}.js`;
-
+      const pluginUrl = pluginMeta.url;
       console.log(`Loading plugin from: ${pluginUrl}`);
 
       // Import the JS glue code
