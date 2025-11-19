@@ -1,0 +1,20 @@
+[package]
+name = "wasm-plugin-sdk"
+version = "0.1.0"
+edition = "2021"
+authors = ["WASM Plugins Team"]
+description = "SDK for building WASM plugins with capability-based security"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["console"]

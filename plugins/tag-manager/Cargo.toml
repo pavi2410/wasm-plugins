@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 wasm-bindgen = { workspace = true }
 serde = { workspace = true }
 serde-wasm-bindgen = { workspace = true }
+wasm-plugin-sdk = { path = "../../wasm-plugin-sdk" }
 
 [profile.release]
 opt-level = "z"

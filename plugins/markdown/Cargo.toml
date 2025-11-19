@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = { workspace = true }
 pulldown-cmark = "0.9"
+wasm-plugin-sdk = { path = "../../wasm-plugin-sdk" }
 
 [profile.release]
 opt-level = "z"

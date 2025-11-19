@@ -1,5 +1,4 @@
-use wasm_bindgen::prelude::*;
-use serde::Serialize;
+use wasm_plugin_sdk::prelude::*;
 
 #[derive(Serialize)]
 pub struct Stats {
@@ -10,6 +9,21 @@ pub struct Stats {
     paragraphs: usize,
 }
 
+/// Plugin activation - called when plugin is loaded
+#[wasm_bindgen]
+pub fn activate() {
+    console_log("Word Counter activated");
+}
+
+/// Plugin deactivation - called before plugin is unloaded
+#[wasm_bindgen]
+pub fn deactivate() {
+    console_log("Word Counter deactivated");
+}
+
+/// Count words, characters, lines, and paragraphs
+///
+/// This is the main command handler registered in manifest.json
 #[wasm_bindgen]
 pub fn count(text: &str) -> JsValue {
     let words = text
@@ -35,9 +49,10 @@ pub fn count(text: &str) -> JsValue {
         paragraphs,
     };
 
-    serde_wasm_bindgen::to_value(&stats).unwrap()
+    to_value(&stats).unwrap()
 }
 
+/// Get plugin information (for display in plugin manager)
 #[wasm_bindgen]
 pub fn get_plugin_info() -> String {
     r#"{"name":"Word Counter","version":"0.1.0","description":"Counts words, characters, and lines"}"#.to_string()
