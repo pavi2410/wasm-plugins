@@ -37,7 +37,8 @@ export class PluginLoader {
    */
   async loadAllPlugins() {
     const baseUrl = import.meta.env.BASE_URL || '/';
-    const pluginPath = `${baseUrl}plugins`;
+    // Ensure proper path separator
+    const pluginPath = baseUrl.endsWith('/') ? `${baseUrl}plugins` : `${baseUrl}/plugins`;
 
     const plugins = [
       'markdown-plugin',
