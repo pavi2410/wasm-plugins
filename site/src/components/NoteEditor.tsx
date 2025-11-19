@@ -54,30 +54,30 @@ export default function NoteEditor({
     let stats = null;
     let tags: string[] = [];
 
-    // Markdown Plugin - calls execute in worker
-    if (pluginLoader.hasPlugin('markdown-plugin') && content) {
+    if (content) {
       try {
-        html = await pluginLoader.callPlugin('markdown-plugin', 'render', content);
-      } catch (error) {
-        console.error('Markdown plugin error:', error);
-      }
-    }
+        // Emit content.changed event to all subscribed plugins
+        const results = await pluginLoader.emit('content.changed', { content });
 
-    // Word Counter Plugin - calls execute in worker
-    if (pluginLoader.hasPlugin('word-counter-plugin') && content) {
-      try {
-        stats = await pluginLoader.callPlugin('word-counter-plugin', 'count', content);
-      } catch (error) {
-        console.error('Word counter plugin error:', error);
-      }
-    }
+        // Process results from all plugins
+        for (const [pluginId, result] of Object.entries(results)) {
+          if (result && !result.error) {
+            const typedResult = result as any;
 
-    // Tag Manager Plugin - calls execute in worker
-    if (pluginLoader.hasPlugin('tag-manager-plugin') && content) {
-      try {
-        tags = await pluginLoader.callPlugin('tag-manager-plugin', 'extract_tags', content);
+            // Handle different plugin response types
+            if (typedResult.type === 'render' && typedResult.html) {
+              html = typedResult.html;
+            } else if (typedResult.type === 'stats' && typedResult.stats) {
+              stats = typedResult.stats;
+            } else if (typedResult.type === 'tags' && typedResult.tags) {
+              tags = typedResult.tags;
+            }
+          } else if (result?.error) {
+            console.error(`Plugin ${pluginId} error:`, result.error);
+          }
+        }
       } catch (error) {
-        console.error('Tag manager plugin error:', error);
+        console.error('Error emitting content.changed event:', error);
       }
     }
 

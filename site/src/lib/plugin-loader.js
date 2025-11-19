@@ -20,7 +20,7 @@ export class PluginLoader {
         description: 'Convert markdown to HTML with full syntax support',
         features: ['Bold/italic/strikethrough', 'Code blocks', 'Lists & tables', 'Links & images'],
         size: '238 KB',
-        url: 'https://pavi2410.github.io/wasm-plugins/plugins/markdown/markdown_plugin.js',
+        url: 'https://pavi2410.github.io/wasm-plugins/plugins/markdown/index.js',
         permissions: ['text.transform']
       },
       {
@@ -29,7 +29,7 @@ export class PluginLoader {
         description: 'Real-time statistics about your text',
         features: ['Word count', 'Character count', 'Line count', 'Paragraph count'],
         size: '48 KB',
-        url: 'https://pavi2410.github.io/wasm-plugins/plugins/word-counter/word_counter_plugin.js',
+        url: 'https://pavi2410.github.io/wasm-plugins/plugins/word-counter/index.js',
         permissions: ['text.analyze']
       },
       {
@@ -38,7 +38,7 @@ export class PluginLoader {
         description: 'Extract and manage hashtags in your notes',
         features: ['Auto-detect #hashtags', 'Tag filtering', 'Tag normalization'],
         size: '79 KB',
-        url: 'https://pavi2410.github.io/wasm-plugins/plugins/tag-manager/tag_manager_plugin.js',
+        url: 'https://pavi2410.github.io/wasm-plugins/plugins/tag-manager/index.js',
         permissions: ['text.analyze']
       }
     ];
@@ -160,7 +160,27 @@ export class PluginLoader {
     this.loadedPlugins.delete(pluginId);
   }
 
-  // ===== Installation Management (same as before) =====
+  /**
+   * Emit an event to all subscribed plugins
+   * @param {string} eventName - Event name (e.g., 'content.changed')
+   * @param {any} data - Event data
+   * @returns {Promise<Object>} Results from all subscribed plugins, keyed by plugin ID
+   */
+  async emit(eventName, data) {
+    if (!this.worker) {
+      await this.initializeExtensionHost();
+    }
+
+    const results = await this.sendMessage({
+      type: 'emitEvent',
+      eventName,
+      data
+    });
+
+    return results;
+  }
+
+  // ===== Installation Management =====
 
   getInstalledPlugins() {
     const installed = localStorage.getItem('wasm-installed-plugins');
@@ -195,49 +215,6 @@ export class PluginLoader {
     return true;
   }
 
-<<<<<<< HEAD
-  /**
-   * Load a WASM plugin
-   * @param {string} pluginId - Plugin ID
-   */
-  async loadPlugin(pluginId) {
-    if (this.plugins.has(pluginId)) {
-      console.log(`✓ Plugin already loaded: ${pluginId}`);
-      return this.plugins.get(pluginId);
-    }
-
-    try {
-      // Find the plugin metadata to get the hardcoded URL
-      const pluginMeta = this.availablePlugins.find(p => p.id === pluginId);
-      if (!pluginMeta || !pluginMeta.url) {
-        throw new Error(`Plugin ${pluginId} not found or missing URL`);
-      }
-
-      const pluginUrl = pluginMeta.url;
-      console.log(`Loading plugin from: ${pluginUrl}`);
-
-      // Import the JS glue code
-      const module = await import(/* @vite-ignore */ pluginUrl);
-
-      // Initialize the WASM module
-      await module.default();
-
-      // Store the plugin
-      this.plugins.set(pluginId, module);
-
-      console.log(`✓ Loaded plugin: ${pluginId}`);
-      return module;
-    } catch (error) {
-      console.error(`✗ Failed to load plugin ${pluginId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Load only installed plugins
-   */
-=======
->>>>>>> 982dae7 (BREAKING CHANGE: Switch to secure Web Worker plugin architecture only)
   async loadInstalledPlugins() {
     const installed = this.getInstalledPlugins();
     console.log(`Loading ${installed.length} installed plugins securely...`);
