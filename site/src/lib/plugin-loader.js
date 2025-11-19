@@ -37,7 +37,6 @@ export class PluginLoader {
    */
   async loadAllPlugins() {
     const baseUrl = import.meta.env.BASE_URL || '/';
-    // Ensure proper path separator
     const pluginPath = baseUrl.endsWith('/') ? `${baseUrl}plugins` : `${baseUrl}/plugins`;
 
     const plugins = [
