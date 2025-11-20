@@ -1,0 +1,51 @@
+{
+  "id": "tag-manager-plugin",
+  "name": "Tag Manager",
+  "version": "0.1.0",
+  "description": "Extract and manage hashtags in your notes with auto-detection and normalization",
+  "author": "WASM Plugins Team",
+
+  "main": "https://pavi2410.github.io/wasm-plugins/plugins/tag-manager/tag_manager_plugin.js",
+
+  "permissions": [
+    "text.read",
+    "ui.panel"
+  ],
+
+  "contributes": {
+    "panels": [
+      {
+        "id": "tag-manager-panel",
+        "title": "Tags",
+        "viewType": "preview.tags",
+        "icon": "hash",
+        "priority": 80,
+        "when": "editorHasText",
+        "command": "tagManager.extract"
+      }
+    ],
+    "commands": [
+      {
+        "id": "tagManager.extract",
+        "handler": "extract_tags"
+      },
+      {
+        "id": "tagManager.highlight",
+        "handler": "highlight_tags"
+      }
+    ]
+  },
+
+  "activationEvents": [
+    "onEditor:text"
+  ],
+
+  "metadata": {
+    "features": [
+      "Auto-detect #hashtags",
+      "Tag filtering",
+      "Tag normalization"
+    ],
+    "size": "79 KB"
+  }
+}

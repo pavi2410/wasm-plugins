@@ -27,9 +27,12 @@ export default function NotesApp() {
     }
   }, []);
 
-  // Load installed plugins on mount
+  // Initialize plugin system and load installed plugins
   useEffect(() => {
     const loadPlugins = async () => {
+      // First, fetch registry and manifests
+      await pluginLoader.initialize();
+      // Then load installed plugins
       await pluginLoader.loadInstalledPlugins();
       setPluginsLoaded(true);
     };

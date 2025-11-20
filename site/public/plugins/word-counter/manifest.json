@@ -1,0 +1,60 @@
+{
+  "id": "word-counter-plugin",
+  "name": "Word Counter",
+  "version": "0.1.0",
+  "description": "Real-time statistics about your text including word count, character count, lines, and paragraphs",
+  "author": "WASM Plugins Team",
+
+  "main": "https://pavi2410.github.io/wasm-plugins/plugins/word-counter/word_counter_plugin.js",
+
+  "permissions": [
+    "text.read",
+    "ui.statusBar"
+  ],
+
+  "contributes": {
+    "statusBar": [
+      {
+        "id": "word-count-status",
+        "alignment": "right",
+        "priority": 10,
+        "command": "wordCounter.update"
+      }
+    ],
+    "panels": [
+      {
+        "id": "word-counter-stats",
+        "title": "Statistics",
+        "viewType": "preview.stats",
+        "icon": "bar-chart",
+        "priority": 90,
+        "when": "editorHasText",
+        "command": "wordCounter.count"
+      }
+    ],
+    "commands": [
+      {
+        "id": "wordCounter.count",
+        "handler": "count"
+      },
+      {
+        "id": "wordCounter.update",
+        "handler": "count"
+      }
+    ]
+  },
+
+  "activationEvents": [
+    "onEditor:text"
+  ],
+
+  "metadata": {
+    "features": [
+      "Word count",
+      "Character count",
+      "Line count",
+      "Paragraph count"
+    ],
+    "size": "48 KB"
+  }
+}
