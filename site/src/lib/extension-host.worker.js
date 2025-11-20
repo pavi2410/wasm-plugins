@@ -239,25 +239,6 @@ self.onmessage = async (event) => {
         break;
       }
 
-      case 'callPlugin': {
-        // Legacy API - for backward compatibility during migration
-        const plugin = loadedPlugins.get(pluginId);
-        if (!plugin) {
-          throw new Error(`Plugin ${pluginId} not loaded`);
-        }
-
-        // Set up scoped API for this call
-        const perms = pluginPermissions.get(pluginId) || [];
-        const pluginAPI = createPluginAPI(pluginId, perms);
-        self.pluginAPI = pluginAPI;
-
-        // Execute plugin method (sandboxed in worker)
-        const result = await plugin[method](...args);
-
-        self.postMessage({ id, type: 'result', result });
-        break;
-      }
-
       case 'unloadPlugin': {
         // Clean up all registrations
         for (const [cmdId, entry] of commandRegistry.entries()) {
