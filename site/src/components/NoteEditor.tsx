@@ -64,7 +64,7 @@ export default function NoteEditor({
 
     if (content && pluginsLoaded) {
       try {
-        const pluginResults = await pluginLoader.emit('content.changed', { content });
+        const pluginResults = await pluginLoader.emitEvent('content.changed', { content });
 
         for (const [pluginId, result] of Object.entries(pluginResults)) {
           if (result && !(result as any).error) {

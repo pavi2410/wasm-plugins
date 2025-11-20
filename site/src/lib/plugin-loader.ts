@@ -355,30 +355,6 @@ export class PluginLoader {
   }
 
   /**
-   * Execute a contribution's command
-   */
-  async executeContribution(pluginId: string, commandId: string, data: any): Promise<any> {
-    const manifest = this.manifests.get(pluginId);
-    if (!manifest) {
-      throw new Error(`Plugin ${pluginId} not found`);
-    }
-
-    const command = manifest.contributes.commands?.find(cmd => cmd.id === commandId);
-    if (!command) {
-      throw new Error(`Command ${commandId} not found in ${pluginId}`);
-    }
-
-    const result = await this.sendMessage({
-      type: 'callPlugin',
-      pluginId,
-      method: command.handler,
-      args: [data]
-    });
-
-    return result;
-  }
-
-  /**
    * LIFECYCLE: Deactivate a plugin
    */
   async deactivatePlugin(pluginId: string): Promise<void> {
@@ -488,45 +464,24 @@ export class PluginLoader {
   }
 
   /**
-   * Legacy API for backward compatibility (deprecated)
+   * Emit an event to all plugins that have registered handlers
+   * This is the proper way to communicate with plugins using the event system
    */
-  async emit(eventName: string, data: any): Promise<Record<string, any>> {
-    console.warn('emit() is deprecated, use contributions API instead');
-    const results: Record<string, any> = {};
-
-    for (const [, contribs] of this.contributions.entries()) {
-      for (const contrib of contribs) {
-        try {
-          const result = await this.executeContribution(
-            contrib.pluginId,
-            contrib.command,
-            data
-          );
-          results[contrib.pluginId] = result;
-        } catch (error: any) {
-          results[contrib.pluginId] = { error: error.message };
-        }
-      }
+  async emitEvent(eventName: string, data: any): Promise<Record<string, any>> {
+    if (!this.worker) {
+      await this.initializeExtensionHost();
     }
 
-    return results;
-  }
-
-  /**
-   * Legacy callPlugin for backward compatibility (deprecated)
-   */
-  async callPlugin(pluginId: string, method: string, ...args: any[]): Promise<any> {
-    console.warn('callPlugin() is deprecated, use executeContribution() instead');
-
-    if (!this.loadedPlugins.has(pluginId)) {
-      throw new Error(`Plugin ${pluginId} not loaded`);
+    try {
+      const result = await this.sendMessage({
+        type: 'emitEvent',
+        eventName,
+        data
+      });
+      return result || {};
+    } catch (error) {
+      console.error(`Error emitting event ${eventName}:`, error);
+      return {};
     }
-
-    return await this.sendMessage({
-      type: 'callPlugin',
-      pluginId,
-      method,
-      args
-    });
   }
 }
