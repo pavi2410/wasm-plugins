@@ -1,17 +1,17 @@
 ---
-import '../styles/global.css';
+import '../styles/globals.css';
 import NotesApp from '../components/NotesApp';
 ---
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WASM Notes - Extensible Notes App</title>
   <meta name="description" content="A notes app powered by WebAssembly plugins">
 </head>
-<body>
+<body class="antialiased">
   <NotesApp client:only="react" />
 </body>
 </html>
